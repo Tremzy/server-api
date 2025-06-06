@@ -1,0 +1,149 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>API Testing</title>
+    <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.0/dist/css/bootstrap.min.css" rel="stylesheet" />
+    <style>
+        body {
+            background: linear-gradient(135deg, #50c2ff, #3e78bb);
+            min-height: 100vh;
+            color: #222;
+        }
+
+        .btn-custom {
+            background-color: white;
+            border: 1px solid #333c44;
+            color: #222;
+            transition: background-color 0.3s, color 0.3s;
+            padding-left: 3rem;
+            padding-right: 3rem;
+        }
+
+        .btn-custom:hover, .btn-custom:focus {
+            background-color: #e2e8f0;
+            color: #000;
+        }
+
+        .container {
+            padding-top: 4rem;
+            padding-bottom: 4rem;
+        }
+
+        h1, h2 {
+            font-weight: 700;
+            margin-bottom: 1.5rem;
+        }
+
+        .endpoint {
+            margin-bottom: 2rem;
+            background: rgba(255, 255, 255, 0.85);
+            padding: 1.5rem;
+            border-radius: 8px;
+            box-shadow: 0 2px 6px rgba(0,0,0,0.1);
+        }
+
+        .code-block {
+            background-color: #f8f9fa;
+            border: 1px solid #ced4da;
+            padding: 0.75rem 1rem;
+            border-radius: 4px;
+            font-family: monospace, monospace;
+            font-size: 0.9rem;
+            white-space: pre-wrap;
+            word-wrap: break-word;
+            margin-top: 0.5rem;
+        }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <h1 class="text-white mb-4">Non-Production API</h1>
+        <p class="lead text-white mb-5">
+            This API is for testing and development purposes only. Use it to experiment!
+        </p>
+        <p class="lead text-white mb-5">
+            You can send 5 connections every 5 seconds.
+        </p>
+
+        <h2 class="text-white mb-4">Available Endpoints</h2>
+
+        <div class="endpoint">
+            <h5><code>GET /api/utc</code></h5>
+            <p>Returns the current UTC time in JSON format.</p>
+
+            <strong>Parameters:</strong>
+            <ul>
+                <li><em>None</em></li>
+            </ul>
+
+            <strong>Returns:</strong>
+            <div class="code-block">
+{
+  "utc": "2025-06-06T12:34:56Z"
+}
+            </div>
+
+            <button class="btn btn-custom mt-3" onclick="window.location.pathname = '/api/utc'">Try it</button>
+        </div>
+
+        <div class="endpoint">
+            <h5><code>GET /api/users</code></h5>
+            <p>Retrieves a list of users.</p>
+
+            <strong>Parameters:</strong>
+            <ul>
+                <li><code>limit</code> (optional, integer): Maximum number of users to return.</li>
+                <li><code>offset</code> (optional, integer): Number of users to skip.</li>
+            </ul>
+
+            <strong>Returns:</strong>
+            <div class="code-block">
+[
+  {
+    "id": 1,
+    "name": "Alice",
+    "email": "alice@example.com"
+  },
+  {
+    "id": 2,
+    "name": "Bob",
+    "email": "bob@example.com"
+  }
+]
+            </div>
+
+            <button class="btn btn-custom mt-3" onclick="window.location.pathname = '/api/users'">Try it</button>
+        </div>
+
+        <div class="endpoint">
+            <h5><code>POST /api/login</code></h5>
+            <p>Authenticate a user and receive a token.</p>
+
+            <strong>Parameters (JSON body):</strong>
+            <div class="code-block">
+{
+  "username": "your_username",
+  "password": "your_password"
+}
+            </div>
+
+            <strong>Returns:</strong>
+            <div class="code-block">
+{
+  "token": "abcdef1234567890"
+}
+            </div>
+
+            <button class="btn btn-custom mt-3" onclick="window.location.pathname = '/api/login'">Try it</button>
+        </div>
+
+        <footer class="mt-5 text-white">
+            <small>Note: This API is not for production use. Data may be reset without notice.</small>
+        </footer>
+    </div>
+
+    <script src="https://cdn.jsdelivr.net/npm/bootstrap@5.3.0/dist/js/bootstrap.bundle.min.js"></script>
+</body>
+</html>

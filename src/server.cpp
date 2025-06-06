@@ -7,15 +7,18 @@
 #include <arpa/inet.h>
 #include <thread>
 #include <csignal>
+#include <fstream>
+
 
 const int PORT = 8080;
 const int MAX_CLIENTS = 255;
 static int server_fd;
+const int MINSECPERFIVECONS = 5;
 
 struct ClientInfo {
     std::string ip_addr;
     int port;
-    size_t lastConnected;
+    size_t lastConnected[25];
     int connections;
 };
 
@@ -31,6 +34,15 @@ ClientInfo* search_client(const std::string &client_ip) {
     return nullptr;
 }
 
+void shift_cons(ClientInfo &client) {
+    if (client.connections <= 0) return;
+    for (int i = 0; i < client.connections - 1; i++) {
+        client.lastConnected[i] = client.lastConnected[i + 1];
+    }
+    client.lastConnected[client.connections - 1] = 0;
+    client.connections--;
+}
+
 void input_thread_func() {
     std::string line;
     while (std::getline(std::cin, line)) {
@@ -43,7 +55,20 @@ void input_thread_func() {
             if (clLen > 0) {
                 std::cout << "Client list:\n";
                 for(int i = 0; i < clLen; i++) {
-                    std::cout << "- Client [" << i+1 << "]:\n\tIP:" << clientList[i].ip_addr <<"\n\tClient port: " << clientList[i].port << "\n\tLast seen: " << clientList[i].lastConnected << "\n\tTotal connections: " << clientList[i].connections << "\n";
+                    if (clientList[i].connections > 0) {
+                        const std::time_t lstCon = static_cast<time_t>(
+                            clientList[i].lastConnected[clientList[i].connections - 1]
+                        );
+                        std::tm* gmt = std::gmtime(&lstCon);
+                        char buffer[64];
+                        std::strftime(buffer, sizeof(buffer), "%Y. %m. %d., %H:%M:%S", gmt);
+                        std::cout << "- Client [" << i+1 << "]:\n\tIP:" << clientList[i].ip_addr
+                                << "\n\tClient port: " << clientList[i].port
+                                << "\n\tLast seen: " << buffer
+                                << "\n\tTotal connections: " << clientList[i].connections << "\n";
+                    } else {
+                        std::cout << "- Client [" << i+1 << "] has no connections logged.\n";
+                    }
                 }
             }
             else {
@@ -73,7 +98,7 @@ std::string get_utc_time_json() {
     return oss.str();
 }
 
-std::string http_response(const std::string &body) {
+std::string http_response_json(const std::string &body) {
     std::ostringstream oss;
     oss << "HTTP/1.1 200 OK\r\n";
     oss << "Content-type: application/json\r\n";
@@ -82,6 +107,25 @@ std::string http_response(const std::string &body) {
     oss << "\r\n";
     oss << body;
     return oss.str();
+}
+
+std::string http_response_html(const std::string &body) {
+    std::ostringstream oss;
+    oss << "HTTP/1.1 200 OK\r\n";
+    oss << "Content-type: text/html\r\n";
+    oss << "Content-length: " << body.length() << "\r\n";
+    oss << "Connection: close\r\n";
+    oss << "\r\n";
+    oss << body;
+    return oss.str();
+}
+
+std::string read_html(const std::string &path) {
+    std::ifstream file(path);
+    if (!file) return "";
+    std::ostringstream content;
+    content << file.rdbuf();
+    return content.str();
 }
 
 int main() {
@@ -125,6 +169,34 @@ int main() {
             continue;
         }
         
+        char ip_addr[INET_ADDRSTRLEN];
+        inet_ntop(AF_INET, &(address.sin_addr), ip_addr, INET_ADDRSTRLEN);
+        int client_port = ntohs(address.sin_port);
+        
+        ClientInfo* current_client = search_client(std::string(ip_addr));
+        if (current_client != nullptr) {
+            if (current_client->connections >= 24) {
+                shift_cons(*current_client);
+            }
+            current_client->connections += 1;
+            current_client->lastConnected[current_client->connections-1] = std::time(nullptr);
+            if (current_client->connections >= 5) {
+                if (current_client->lastConnected[current_client->connections-1] - current_client->lastConnected[current_client->connections-5] < MINSECPERFIVECONS) {
+                    std::cout << "[" << current_client->ip_addr << "] " << "violated connection throttling\nDeferring connection...\n";
+                    close(new_socket);
+                    continue;
+                }
+            }
+        }
+        else {
+            ClientInfo new_client;
+            new_client.ip_addr = ip_addr;
+            new_client.port = client_port;
+            new_client.connections = 1;
+            new_client.lastConnected[0] = std::time(nullptr);
+            clientList[clLen] = new_client;
+            clLen++;
+        }
         
         char buffer[3000] = {0};
         read(new_socket, buffer, sizeof(buffer));
@@ -134,30 +206,16 @@ int main() {
             continue;
         }
 
-        char ip_addr[INET_ADDRSTRLEN];
-        inet_ntop(AF_INET, &(address.sin_addr), ip_addr, INET_ADDRSTRLEN);
-        int client_port = ntohs(address.sin_port);
-
-        ClientInfo* current_client = search_client(std::string(ip_addr));
-        if (current_client != nullptr) {
-            current_client->lastConnected = std::time(nullptr);
-            current_client->connections += 1;
-        }
-        else {
-            ClientInfo new_client;
-            new_client.ip_addr = ip_addr;
-            new_client.port = client_port;
-            new_client.connections = 1;
-            new_client.lastConnected = std::time(nullptr);
-            clientList[clLen] = new_client;
-            clLen++;
-        }
-        
         std::cout << "Received request:\n" << request << "\n";
-
-        if (request.starts_with("GET /api/utc")) {
+        
+        if (request.starts_with("GET / HTTP/1.1")) {
+            std::string body = read_html("src/htdocs/index.html");
+            std::string response = http_response_html(body);
+            send(new_socket, response.c_str(), response.length(), 0);
+        }
+        else if (request.starts_with("GET /api/utc")) {
             std::string body = get_utc_time_json();
-            std::string response = http_response(body);
+            std::string response = http_response_json(body);
             send(new_socket, response.c_str(), response.length(), 0);
         }
         else {
