@@ -9,17 +9,24 @@
 #include <csignal>
 #include <fstream>
 
-
 const int PORT = 8080;
 const int MAX_CLIENTS = 255;
 static int server_fd;
-const int MINSECPERFIVECONS = 5;
+const int MINSECPERTENCONS = 3;
+const int MAX_THREADS = 512;
+const int MAX_INFRACTIONS = 25;
+const int BAN_TIME_SEC = 180;
+const int INFTIMEOUTSEC = 360;
+std::thread threadList[MAX_THREADS];
 
 struct ClientInfo {
     std::string ip_addr;
     int port;
     size_t lastConnected[25];
     int connections;
+    int infractions;
+    time_t bannedUntil;
+    time_t firstInf;
 };
 
 static ClientInfo* clientList = new ClientInfo[MAX_CLIENTS];
@@ -62,10 +69,14 @@ void input_thread_func() {
                         std::tm* gmt = std::gmtime(&lstCon);
                         char buffer[64];
                         std::strftime(buffer, sizeof(buffer), "%Y. %m. %d., %H:%M:%S", gmt);
-                        std::cout << "- Client [" << i+1 << "]:\n\tIP:" << clientList[i].ip_addr
+                        std::cout << "- Client [" << i+1 << "]:"
+                                << "\n\tIP: " << clientList[i].ip_addr
                                 << "\n\tClient port: " << clientList[i].port
                                 << "\n\tLast seen: " << buffer
-                                << "\n\tTotal connections: " << clientList[i].connections << "\n";
+                                << "\n\tTotal connections: " << clientList[i].connections
+                                << "\n\tInfractions: " << clientList[i].infractions
+                                << "\n\tInfraction time out in: " << clientList[i].firstInf + INFTIMEOUTSEC - std::time(nullptr)
+                                << "\n";
                     } else {
                         std::cout << "- Client [" << i+1 << "] has no connections logged.\n";
                     }
@@ -128,6 +139,88 @@ std::string read_html(const std::string &path) {
     return content.str();
 }
 
+void handle_request(int new_socket, sockaddr_in address) {
+    char ip_addr[INET_ADDRSTRLEN];
+    inet_ntop(AF_INET, &(address.sin_addr), ip_addr, INET_ADDRSTRLEN);
+    int client_port = ntohs(address.sin_port);
+    
+    ClientInfo* current_client = search_client(std::string(ip_addr));
+    if (current_client != nullptr) {
+        if (current_client->connections >= 24) {
+            shift_cons(*current_client);
+        }
+
+        if (current_client->bannedUntil > std::time(nullptr)) {
+            close(new_socket);
+            return;
+        }
+
+        current_client->connections += 1;
+        current_client->lastConnected[current_client->connections-1] = std::time(nullptr);
+        if (current_client->connections >= 10) {
+            if (current_client->lastConnected[current_client->connections-1] - current_client->lastConnected[current_client->connections-10] < MINSECPERTENCONS) {
+                std::cout << "[" << current_client->ip_addr << "] " << "violated connection throttling\nDeferring connection...\n";
+
+                if (current_client->infractions >= 1 && current_client->firstInf + INFTIMEOUTSEC < std::time(nullptr)) {
+                    current_client->infractions = 0;
+                }
+
+                if (current_client->infractions < 1) {
+                    current_client->firstInf = std::time(nullptr);
+                }
+
+                current_client->infractions++;
+                if (current_client->infractions > MAX_INFRACTIONS) {
+                    std::cout << "[" << current_client->ip_addr << "] " << " has been banned for commiting too many violations\n";
+                    current_client->bannedUntil = std::time(nullptr)+BAN_TIME_SEC;
+                    current_client->infractions = 0;
+                }
+
+                close(new_socket);
+                return;
+            }
+        }
+    }
+    else {
+        ClientInfo new_client;
+        new_client.ip_addr = ip_addr;
+        new_client.port = client_port;
+        new_client.connections = 1;
+        new_client.lastConnected[0] = std::time(nullptr);
+        new_client.infractions = 0;
+        new_client.bannedUntil = 0;
+        new_client.firstInf = 0;
+        clientList[clLen] = new_client;
+        clLen++;
+    }
+    
+    char buffer[3000] = {0};
+    read(new_socket, buffer, sizeof(buffer));
+    std::string request(buffer);
+    
+    if (request.length() < 1) {
+        return;
+    }
+    std::cout << "Received request:\n" << request << "\n";
+    
+    if (request.starts_with("GET / HTTP/1.1")) {
+        std::string body = read_html("src/htdocs/index.html");
+        std::string response = http_response_html(body);
+        send(new_socket, response.c_str(), response.length(), 0);
+    }
+    else if (request.starts_with("GET /api/utc")) {
+        std::string body = get_utc_time_json();
+        std::string response = http_response_json(body);
+        send(new_socket, response.c_str(), response.length(), 0);
+    }
+    else {
+        const std::string not_found = "HTTP/1.1 404 Not Found\r\nContent-Length: 0\r\nConnection: close\r\n\r\n";
+        send(new_socket, not_found.c_str(), not_found.length(), 0);
+    }
+
+    close(new_socket);
+}
+
 int main() {
     std::signal(SIGINT, sighandler);
     std::thread input_thread(input_thread_func);
@@ -168,61 +261,26 @@ int main() {
             perror("accept");
             continue;
         }
-        
-        char ip_addr[INET_ADDRSTRLEN];
-        inet_ntop(AF_INET, &(address.sin_addr), ip_addr, INET_ADDRSTRLEN);
-        int client_port = ntohs(address.sin_port);
-        
-        ClientInfo* current_client = search_client(std::string(ip_addr));
-        if (current_client != nullptr) {
-            if (current_client->connections >= 24) {
-                shift_cons(*current_client);
-            }
-            current_client->connections += 1;
-            current_client->lastConnected[current_client->connections-1] = std::time(nullptr);
-            if (current_client->connections >= 5) {
-                if (current_client->lastConnected[current_client->connections-1] - current_client->lastConnected[current_client->connections-5] < MINSECPERFIVECONS) {
-                    std::cout << "[" << current_client->ip_addr << "] " << "violated connection throttling\nDeferring connection...\n";
-                    close(new_socket);
-                    continue;
-                }
-            }
-        }
-        else {
-            ClientInfo new_client;
-            new_client.ip_addr = ip_addr;
-            new_client.port = client_port;
-            new_client.connections = 1;
-            new_client.lastConnected[0] = std::time(nullptr);
-            clientList[clLen] = new_client;
-            clLen++;
-        }
-        
-        char buffer[3000] = {0};
-        read(new_socket, buffer, sizeof(buffer));
-        std::string request(buffer);
-        
-        if (request.length() < 1) {
-            continue;
-        }
 
-        std::cout << "Received request:\n" << request << "\n";
-        
-        if (request.starts_with("GET / HTTP/1.1")) {
-            std::string body = read_html("src/htdocs/index.html");
-            std::string response = http_response_html(body);
-            send(new_socket, response.c_str(), response.length(), 0);
+        bool assigned = false;
+        for (int i = 0; i < MAX_THREADS; i++) {
+            if (threadList[i].joinable()) {
+                threadList[i].join();
+            }
+            if (!threadList[i].joinable()) {
+                threadList[i] = std::thread(handle_request, new_socket, address);
+                assigned = true;
+                std::cout << "Offloading to index [" << i << "] in the thread pool\n"; 
+                break;
+            }
         }
-        else if (request.starts_with("GET /api/utc")) {
-            std::string body = get_utc_time_json();
-            std::string response = http_response_json(body);
-            send(new_socket, response.c_str(), response.length(), 0);
+        if (!assigned) {
+            close(new_socket);
+            std::cout << "Thread pool is full, cannot handle new request\n";
         }
-        else {
-            const std::string not_found = "HTTP/1.1 404 Not Found\r\nContent-Length: 0\r\nConnection: close\r\n\r\n";
-            send(new_socket, not_found.c_str(), not_found.length(), 0);
-        }
-        close(new_socket);
+         
+        std::thread passRequest(handle_request, new_socket, address);
+        passRequest.detach();
     }
     return 0;
 }
