@@ -176,7 +176,7 @@ std::string* split(std::string& data, char delimiter, int arbitrary_len) {
     return split_list;
 }
 
-void handle_request(int new_socket, sockaddr_in address) {
+void handle_request(int new_socket, sockaddr_in address, int listIndex) {
     char ip_addr[INET_ADDRSTRLEN];
     inet_ntop(AF_INET, &(address.sin_addr), ip_addr, INET_ADDRSTRLEN);
     int client_port = ntohs(address.sin_port);
@@ -189,6 +189,9 @@ void handle_request(int new_socket, sockaddr_in address) {
 
         if (current_client->bannedUntil > std::time(nullptr)) {
             close(new_socket);
+            if (threadList[listIndex].joinable()) {
+                threadList[listIndex].detach();
+            }
             return;
         }
 
@@ -214,6 +217,9 @@ void handle_request(int new_socket, sockaddr_in address) {
                 }
 
                 close(new_socket);
+                if (threadList[listIndex].joinable()) {
+                    threadList[listIndex].detach();
+                }
                 return;
             }
         }
@@ -236,6 +242,9 @@ void handle_request(int new_socket, sockaddr_in address) {
     std::string request(buffer);
     
     if (request.length() < 1) {
+        if (threadList[listIndex].joinable()) {
+            threadList[listIndex].detach();
+        }
         return;
     }
     std::cout << "Received request:\n" << request << "\n";
@@ -265,6 +274,9 @@ void handle_request(int new_socket, sockaddr_in address) {
                         if (len > 0 && len <= 128)
                             body = generate_random_password(len);
                     } catch (const std::exception& e) {
+                        if (threadList[listIndex].joinable()) {
+                            threadList[listIndex].detach();
+                        }
                         return;
                     }
                 }
@@ -282,6 +294,9 @@ void handle_request(int new_socket, sockaddr_in address) {
     }
 
     close(new_socket);
+    if (threadList[listIndex].joinable()) {
+        threadList[listIndex].detach();
+    }
     return;
 }
 
@@ -328,11 +343,8 @@ int main() {
 
         bool assigned = false;
         for (int i = 0; i < MAX_THREADS; i++) {
-            if (threadList[i].joinable()) {
-                threadList[i].join();
-            }
             if (!threadList[i].joinable()) {
-                threadList[i] = std::thread(handle_request, new_socket, address);
+                threadList[i] = std::thread(handle_request, new_socket, address, i);
                 assigned = true;
                 std::cout << "Offloading to index [" << i << "] in the thread pool\n"; 
                 break;
@@ -342,9 +354,6 @@ int main() {
             close(new_socket);
             std::cout << "Thread pool is full, cannot handle new request\n";
         }
-         
-        std::thread passRequest(handle_request, new_socket, address);
-        passRequest.detach();
     }
     return 0;
 }
