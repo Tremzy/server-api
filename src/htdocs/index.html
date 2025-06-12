@@ -81,7 +81,7 @@
             <strong>Returns:</strong>
             <div class="code-block">
 {
-  "utc": "2025-06-06T12:34:56Z"
+    "utc": "2025-06-06T12:34:56Z"
 }
             </div>
 
@@ -89,54 +89,22 @@
         </div>
 
         <div class="endpoint">
-            <h5><code>GET /api/users</code></h5>
-            <p>Retrieves a list of users.</p>
+            <h5><code>GET /api/random/password/[length]</code></h5>
+            <p>Generates and returns a random password in JSON format.</p>
 
             <strong>Parameters:</strong>
             <ul>
-                <li><code>limit</code> (optional, integer): Maximum number of users to return.</li>
-                <li><code>offset</code> (optional, integer): Number of users to skip.</li>
+                <li><code>length</code> (optional, integer): Length of the password generated. Defaults to 16.</li>
             </ul>
 
             <strong>Returns:</strong>
             <div class="code-block">
-[
-  {
-    "id": 1,
-    "name": "Alice",
-    "email": "alice@example.com"
-  },
-  {
-    "id": 2,
-    "name": "Bob",
-    "email": "bob@example.com"
-  }
-]
-            </div>
-
-            <button class="btn btn-custom mt-3" onclick="window.location.pathname = '/api/users'">Try it</button>
-        </div>
-
-        <div class="endpoint">
-            <h5><code>POST /api/login</code></h5>
-            <p>Authenticate a user and receive a token.</p>
-
-            <strong>Parameters (JSON body):</strong>
-            <div class="code-block">
-{
-  "username": "your_username",
-  "password": "your_password"
+{ 
+    "password": "c8rGxl6O7ghrZiPo" 
 }
             </div>
 
-            <strong>Returns:</strong>
-            <div class="code-block">
-{
-  "token": "abcdef1234567890"
-}
-            </div>
-
-            <button class="btn btn-custom mt-3" onclick="window.location.pathname = '/api/login'">Try it</button>
+            <button class="btn btn-custom mt-3" onclick="window.location.pathname = '/api/random/password'">Try it</button>
         </div>
 
         <footer class="mt-5 text-white">

@@ -97,6 +97,19 @@ void sighandler(int sigid) {
     }
 }
 
+std::string generate_random_password(int length = 16) {
+    const char charPool[63] = "qwertzuiopasdfghjklyxcvbnmQWERTZUIOPASDFGHJKLYXCVBNM0123456789";
+    std::ostringstream os_result;
+    os_result << "{ \"password\": \"";
+    for (int i = 0; i < length; i++) {
+        int randChoice = rand() % 62;
+        os_result << charPool[randChoice];
+    }
+    os_result << "\" }";
+    return os_result.str();
+}
+
+
 std::string get_utc_time_json() {
     std::time_t now = std::time(nullptr);
     std::tm *gmt = std::gmtime(&now); 
@@ -137,6 +150,30 @@ std::string read_html(const std::string &path) {
     std::ostringstream content;
     content << file.rdbuf();
     return content.str();
+}
+
+std::string* split(std::string& data, char delimiter, int arbitrary_len) {
+    std::string* split_list = new std::string[arbitrary_len];
+    std::ostringstream helper;
+    int index = 0;
+
+    for (int i = 0; i < data.length(); i++) {
+        if (data[i] != delimiter) helper << data[i];
+        else {
+            if (i == 0) continue;
+            if (index < arbitrary_len) {
+                split_list[index++] = helper.str();
+            }
+            helper.str("");
+            helper.clear();
+        }
+    }
+
+    if (index < arbitrary_len) {
+        split_list[index++] = helper.str();
+    }
+
+    return split_list;
 }
 
 void handle_request(int new_socket, sockaddr_in address) {
@@ -202,23 +239,50 @@ void handle_request(int new_socket, sockaddr_in address) {
         return;
     }
     std::cout << "Received request:\n" << request << "\n";
-    
-    if (request.starts_with("GET / HTTP/1.1")) {
-        std::string body = read_html("src/htdocs/index.html");
-        std::string response = http_response_html(body);
-        send(new_socket, response.c_str(), response.length(), 0);
-    }
-    else if (request.starts_with("GET /api/utc")) {
-        std::string body = get_utc_time_json();
-        std::string response = http_response_json(body);
-        send(new_socket, response.c_str(), response.length(), 0);
-    }
-    else {
+    std::string* headers = split(request, ' ', 3);
+    std::string method = headers[0];
+    std::string path = headers[1];
+
+    std::cout << "Method: " << method << std::endl << "Path: " << path << std::endl;
+    if (method == "GET") {
+        if (path == "/") {
+            std::string body = read_html("src/htdocs/index.html");
+            std::string response = http_response_html(body);
+            send(new_socket, response.c_str(), response.length(), 0);
+        } else if (path == "/api/utc") {
+            std::string body = get_utc_time_json();
+            std::string response = http_response_json(body);
+            send(new_socket, response.c_str(), response.length(), 0);
+        } else if (path.starts_with("/api/random/password")) {
+            std::string* query = split(path, '?', 2);
+            std::string body = generate_random_password();
+
+            if (!query[1].empty()) {
+                std::string* param = split(query[1], '=', 2);
+                if (param[0] == "length" && !param[1].empty()) {
+                    try {
+                        int len = std::stoi(param[1]);
+                        if (len > 0 && len <= 128)
+                            body = generate_random_password(len);
+                    } catch (const std::exception& e) {
+                        return;
+                    }
+                }
+            }
+
+            std::string response = http_response_json(body);
+            send(new_socket, response.c_str(), response.length(), 0);
+        } else {
+            const std::string not_found = "HTTP/1.1 404 Not Found\r\nContent-Length: 0\r\nConnection: close\r\n\r\n";
+            send(new_socket, not_found.c_str(), not_found.length(), 0);
+        }
+    } else {
         const std::string not_found = "HTTP/1.1 404 Not Found\r\nContent-Length: 0\r\nConnection: close\r\n\r\n";
         send(new_socket, not_found.c_str(), not_found.length(), 0);
     }
 
     close(new_socket);
+    return;
 }
 
 int main() {
